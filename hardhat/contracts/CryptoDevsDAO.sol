@@ -26,6 +26,9 @@ interface IFakeNFTMarketplace {
     function makePurchase(uint256 _tokenId) external payable;
 }
 
+/**
+ * Interface for CryptoDevsNFT
+ */
 interface ICryptoDevsNFT {
     /**
      * @dev balanceOf returns the number of NFTs owned by the given address
@@ -46,4 +49,64 @@ interface ICryptoDevsNFT {
     ) external view returns (uint256);
 }
 
-contract CryptoDevsDAO is Ownable {}
+contract CryptoDevsDAO is Ownable {
+    struct Proposal {
+        // Id of token to be purchased from NFT marketplace
+        uint256 tokenId;
+        // Unix timestamp for propsal deadline
+        uint256 deadline;
+        // Number of votes with approval
+        uint256 approvedVotes;
+        // Number of votes who declined proposal
+        uint256 declinedVotes;
+        // Is proposal already executed?
+        bool isPropsalExecuted;
+        // If the given NFT/TokenID has already been used for vote
+        mapping(uint256 => bool) votersToken;
+    }
+
+    // ID to Proposal mapping
+    mapping(uint256 => Proposal) public proposals;
+
+    // Number of proposals made
+    uint256 public numberOfProposalsMade;
+
+    // Contract interface
+    IFakeNFTMarketplace fakeNFTMarketplace;
+    ICryptoDevsNFT cryptoDevsNFT;
+
+    constructor(address _fakeNFTMarketplace, address _cryptoDevsNFT) payable {
+        fakeNFTMarketplace = IFakeNFTMarketplace(_fakeNFTMarketplace);
+        cryptoDevsNFT = ICryptoDevsNFT(_cryptoDevsNFT);
+    }
+
+    /**
+     * Only CryptoDevsNFT holder can execute the function
+     */
+    modifier nftHolderOnly() {
+        require(cryptoDevsNFT.balanceOf(msg.sender) > 0, "Does not NFT.");
+        _;
+    }
+
+    function createProposal(
+        uint256 _nftTokenId
+    ) external nftHolderOnly returns (uint256) {
+        // Check if NFT is still available for purchase
+        require(
+            fakeNFTMarketplace.isAvailable(_nftTokenId),
+            "This NFT is not for sale."
+        );
+
+        // Add new proposal
+        // By default, for first proposal, value for numberOfProposalsMade will be 0;
+        Proposal storage proposal = proposals[numberOfProposalsMade];
+        proposal.tokenId = _nftTokenId;
+        proposal.deadline = block.timestamp + 5 minutes;
+
+        // Update counter so that new proposal can be added in `proposals` mapping.
+        numberOfProposalsMade++;
+
+        // We want to return proposals starting from 0th index
+        return numberOfProposalsMade - 1;
+    }
+}
