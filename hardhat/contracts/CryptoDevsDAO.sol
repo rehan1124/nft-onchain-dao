@@ -50,6 +50,10 @@ interface ICryptoDevsNFT {
 }
 
 contract CryptoDevsDAO is Ownable {
+    enum Vote {
+        Yes,
+        No
+    }
     struct Proposal {
         // Id of token to be purchased from NFT marketplace
         uint256 tokenId;
@@ -84,10 +88,42 @@ contract CryptoDevsDAO is Ownable {
      * Only CryptoDevsNFT holder can execute the function
      */
     modifier nftHolderOnly() {
-        require(cryptoDevsNFT.balanceOf(msg.sender) > 0, "Does not NFT.");
+        require(cryptoDevsNFT.balanceOf(msg.sender) > 0, "Does not have NFT.");
         _;
     }
 
+    /**
+     * Check if proposal is still active to be voted
+     * @param _proposalIndex Proposal index
+     */
+    modifier activeProposalsOnly(uint256 _proposalIndex) {
+        require(
+            proposals[_proposalIndex].deadline > block.timestamp,
+            "Deadline for vote exceeded."
+        );
+        _;
+    }
+
+    /**
+     * Check if proposal is still active for vote or if its ready to be executed
+     */
+    modifier inactiveProposalOnly(uint256 _proposalIndex) {
+        require(
+            proposals[_proposalIndex].deadline <= block.timestamp,
+            "You still have time to vote. Proposal cannot be executed now."
+        );
+        require(
+            !proposals[_proposalIndex].isPropsalExecuted,
+            "Proposal executed already."
+        );
+        _;
+    }
+
+    /**
+     * @dev Creates new proposal and adds to mapping
+     * @param _nftTokenId ID of NFT to be purchased
+     * @return Proposal number
+     */
     function createProposal(
         uint256 _nftTokenId
     ) external nftHolderOnly returns (uint256) {
@@ -109,4 +145,77 @@ contract CryptoDevsDAO is Ownable {
         // We want to return proposals starting from 0th index
         return numberOfProposalsMade - 1;
     }
+
+    /**
+     * To be used for voting on any proposal
+     * @param _proposalIndex Proposal for which voting is to be done
+     * @param _vote Yes or No
+     */
+    function voteOnProposal(
+        uint256 _proposalIndex,
+        Vote _vote
+    ) external nftHolderOnly activeProposalsOnly(_proposalIndex) {
+        Proposal storage proposal = proposals[_proposalIndex];
+
+        uint256 voterNFTBalance = cryptoDevsNFT.balanceOf(msg.sender);
+        uint256 numVotes = 0;
+
+        // Check how many tokens are owned by voter
+        // If token ID hasnt been already used for voting, increment number of votes and add token ID to mapping
+        for (uint256 i = 0; i < voterNFTBalance; i++) {
+            uint256 voterTokenId = cryptoDevsNFT.tokenOfOwnerByIndex(
+                msg.sender,
+                i
+            );
+            if (!proposal.votersToken[voterTokenId]) {
+                numVotes++;
+                proposal.votersToken[voterTokenId] = true;
+            }
+        }
+
+        require(numVotes > 0, "Not enough votes.");
+
+        if (_vote == Vote.Yes) {
+            proposal.approvedVotes += numVotes;
+        } else {
+            proposal.declinedVotes += numVotes;
+        }
+    }
+
+    /**
+     * Executes the proposal and transfers fund to contract
+     * @param _proposalIndex Proposal which has to be executed and funds has to be transferred
+     */
+    function executeProposal(
+        uint256 _proposalIndex
+    ) external nftHolderOnly inactiveProposalOnly(_proposalIndex) {
+        Proposal storage proposal = proposals[_proposalIndex];
+
+        if (proposal.approvedVotes > proposal.declinedVotes) {
+            uint256 nftPrice = fakeNFTMarketplace.getPrice();
+            // Check if contract has enough balance to purchase NFT
+            require(address(this).balance > nftPrice, "Not enough funds.");
+            // Transfer of eth to only happen when votes for Yes > No
+            fakeNFTMarketplace.makePurchase{value: nftPrice}(proposal.tokenId);
+        }
+
+        // Whether number of votes for Yes > No or vice-versa, execute the proposal.
+        proposal.isPropsalExecuted = true;
+    }
+
+    /**
+     * Withdraw funds from contract and transfer to owner
+     */
+    function withdrawEth() external onlyOwner {
+        uint256 amountInContract = address(this).balance;
+        require(amountInContract > 0, "No funds to withdraw.");
+        (bool isFundTransferred, ) = payable(owner()).call{
+            value: amountInContract
+        }("");
+        require(isFundTransferred, "Failed to withdraw funds from contract.");
+    }
+
+    receive() external payable {}
+
+    fallback() external payable {}
 }
