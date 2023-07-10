@@ -6,23 +6,51 @@
 // global scope, and execute the script.
 const hre = require("hardhat");
 
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function main() {
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const unlockTime = currentTimestampInSeconds + 60;
+  // --- CryptoDevsNFT deployment ---
+  const nftContract = await hre.ethers.deployContract("CryptoDevsNFT");
+  await nftContract.waitForDeployment();
+  console.log("CryptoDevsNFT address: ", nftContract.target);
 
-  const lockedAmount = hre.ethers.parseEther("0.001");
+  // --- FakeNFTMarketPlace deployment ---
+  const fakeNftMarketPlace = await hre.ethers.deployContract(
+    "FakeNFTMarketPlace"
+  );
+  await fakeNftMarketPlace.waitForDeployment();
+  console.log("FakeNFTMarketPlace address: ", fakeNftMarketPlace.target);
 
-  const lock = await hre.ethers.deployContract("Lock", [unlockTime], {
-    value: lockedAmount,
+  // --- CryptoDevsDAO deployment ---
+  const cryptoDevsDao = await hre.ethers.deployContract("CryptoDevsDAO", [
+    fakeNftMarketPlace.target,
+    nftContract.target,
+  ]);
+  await cryptoDevsDao.waitForDeployment();
+  console.log("CryptoDevsDAO address: ", cryptoDevsDao.target);
+
+  // Wait for 30 seconds before proceeding with contract verification
+  await sleep(30 * 1000);
+
+  // --- CryptoDevsNFT verification ---
+  await hre.run("verify:verify", {
+    address: nftContract.target,
+    constructorArguments: [],
   });
 
-  await lock.waitForDeployment();
+  // --- FakeNFTMarketPlace verification ---
+  await hre.run("verify:verify", {
+    address: fakeNftMarketPlace.target,
+    constructorArguments: [],
+  });
 
-  console.log(
-    `Lock with ${ethers.formatEther(
-      lockedAmount
-    )}ETH and unlock timestamp ${unlockTime} deployed to ${lock.target}`
-  );
+  // --- CryptoDevsDAO deployment ---
+  await hre.run("verify:verify", {
+    address: cryptoDevsDao.target,
+    constructorArguments: [fakeNftMarketPlace.target, nftContract.target],
+  });
 }
 
 // We recommend this pattern to be able to use async/await everywhere
