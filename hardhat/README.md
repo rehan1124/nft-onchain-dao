@@ -1,4 +1,4 @@
-# Sample Hardhat Project
+# NFT DAO
 
 The project demonstrates use-case for DAOs to purchase NFT from a marketplace, in our case it's going to be fake NFT marketplace.
 
